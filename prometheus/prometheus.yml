@@ -16,3 +16,10 @@ scrape_configs:
         labels:
           env: "production"
           server: "ubuntu-remote"
+  - job_name: "amneziawg"
+    static_configs:
+      - targets:
+          - "77.110.99.29:9351"
+        labels:
+          env: "production"
+          service: "vpn"
