@@ -39,7 +39,8 @@ if [[ ! "$VPN_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   exit 1
 fi
 
-if [[ "$VPN_IP" == 203.0.113.* ]]; then
+# В CI compose проверяется с адресом-заглушкой; там страж отключается явно.
+if [[ "$VPN_IP" == 203.0.113.* && "${ALLOW_PLACEHOLDER_VPN_IP:-0}" != "1" ]]; then
   echo "✗ VPN_IP='${VPN_IP}' — это заглушка из .env.example, а не реальный адрес"
   echo "  Укажи в .env публичный IP VPN-сервера."
   exit 1
