@@ -1,26 +1,115 @@
+name: vps-monitoring
+
 services:
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v3.11.3
     container_name: prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-    ports:
-      - 9090:9090
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "/prometheus-entrypoint.sh"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=90d
+      - --storage.tsdb.retention.size=20GB
+      - --web.enable-lifecycle
+    environment:
+      VPN_IP: ${VPN_IP:?set VPN_IP in .env}
     volumes:
-      - ./prometheus:/etc/prometheus
+      - ./prometheus/entrypoint.sh:/prometheus-entrypoint.sh:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
       - prom_data:/prometheus
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
     ports:
-      - 3000:3000
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      alertmanager:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    container_name: alertmanager
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?set TELEGRAM_CHAT_ID in .env}
+    volumes:
+      - ./alertmanager/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml.tmpl:ro
+      - ./alertmanager/entrypoint.sh:/entrypoint.sh:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.2
+    container_name: pushgateway
+    restart: unless-stopped
+    command:
+      - --persistence.file=/data/pushgateway.data
+      - --persistence.interval=5m
+    volumes:
+      - pushgateway_data:/data
+    ports:
+      - "${PUSHGATEWAY_BIND:-127.0.0.1}:9091:9091"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9091/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile
+    volumes:
+      - /:/host:ro,rslave
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
+    pid: host
+    ports:
+      - "127.0.0.1:9100:9100"
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    container_name: grafana
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
-      - ./grafana:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   prom_data:
+  grafana_data:
+  alertmanager_data:
+  pushgateway_data:

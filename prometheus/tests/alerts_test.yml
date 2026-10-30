@@ -1,0 +1,86 @@
+rule_files:
+  - ../rules/alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # VPN не скрейпится, но heartbeat свежий -> это блокировка, а не падение
+  - name: unreachable with fresh heartbeat
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-vpn",instance="vpn:9100"}'
+        values: '0x25'
+      - series: 'push_time_seconds{job="vpn-heartbeat",instance="vpn"}'
+        values: '0+60x25'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: VPNUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: node-vpn
+              instance: "vpn:9100"
+            exp_annotations:
+              summary: "VPN-сервер не отвечает на скрейп"
+              description: "Prometheus не может доскрейпить vpn:9100 уже 5 минут. Если heartbeat свежий — это блокировка IP, а не падение сервера."
+
+  # Сервер жив и скрейпится -> алерта нет
+  - name: healthy server
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-vpn",instance="vpn:9100"}'
+        values: '1x25'
+      - series: 'push_time_seconds{job="vpn-heartbeat",instance="vpn"}'
+        values: '0+60x25'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: VPNUnreachable
+        exp_alerts: []
+
+  # Cheburcheck увидел блокировку ТСПУ
+  - name: tspu block detected
+    interval: 1m
+    input_series:
+      - series: 'chebur_probe_verdict_count{verdict="tspu_block"}'
+        values: '12x25'
+      - series: 'chebur_probe_verdict_count{verdict="ok"}'
+        values: '16x25'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: VPNBlockedByTSPU
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              verdict: tspu_block
+            exp_annotations:
+              summary: "ТСПУ блокирует IP (12 сканеров)"
+              description: "Cheburcheck: 12 российских сканеров получили вердикт tspu_block. Часть пользователей не может подключиться — пора менять IP."
+
+  # Нет блокировки -> алерта нет
+  - name: no tspu block
+    interval: 1m
+    input_series:
+      - series: 'chebur_probe_verdict_count{verdict="tspu_block"}'
+        values: '0x25'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: VPNBlockedByTSPU
+        exp_alerts: []
+
+  # Heartbeat пропал -> сервер мёртв
+  - name: heartbeat stale
+    interval: 1m
+    input_series:
+      - series: 'push_time_seconds{job="vpn-heartbeat",instance="vpn"}'
+        values: '0x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: VPNHeartbeatMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: vpn-heartbeat
+              instance: vpn
+            exp_annotations:
+              summary: "Нет heartbeat с VPN-сервера"
+              description: "VPN-сервер не пушит heartbeat больше 3 минут. Либо сервер мёртв, либо не настроен таймер vpn-heartbeat."

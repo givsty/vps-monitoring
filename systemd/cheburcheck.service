@@ -1,0 +1,11 @@
+[Unit]
+Description=Cheburcheck DPI probe for the VPN server
+Documentation=https://github.com/givsty/vps-monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/cheburcheck
+ExecStart=/usr/local/bin/cheburcheck_probe.py --target ${CHEBUR_TARGET} --out /var/lib/node_exporter/textfile/chebur.prom
+Nice=10
