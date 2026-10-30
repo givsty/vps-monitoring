@@ -143,8 +143,24 @@ Secrets (Settings → Secrets and variables → Actions):
 | `SSH_USER` | `deploy` |
 | `SSH_KEY` | приватный ключ ed25519 деплой-пользователя |
 | `SSH_KNOWN_HOSTS` | `ssh-keyscan -H <IP>` — чтобы не отключать проверку хоста |
+| `SSH_PORT` | порт SSH, если не 22 (необязательный) |
 
 Variable (не secret): `DEPLOY_PATH` — путь к репозиторию на сервере, по умолчанию `/opt/vps-monitoring`.
+
+### Требования на сервере
+
+* `git`, `curl`;
+* **docker + docker compose v2** — именно плагин `docker compose`, старый
+  `docker-compose` v1 не подойдёт;
+* пользователь `deploy` в группе `docker`;
+* каталог репозитория принадлежит `deploy` — иначе git ругается
+  `detected dubious ownership`.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose-v2
+sudo -u deploy docker compose version
+```
 
 ### Подготовка сервера
 
@@ -162,6 +178,28 @@ sudo -u deploy git clone https://github.com/givsty/vps-monitoring /opt/vps-monit
 > Если SSH с раннеров GitHub до сервера окажется нестабильным (RU-хостинг),
 > поставь self-hosted runner прямо на сервер мониторинга — workflow тот же.
 
+### Если деплой падает с exit code 255
+
+255 — это ошибка `ssh`, а не скрипта. Workflow теперь сам проверяет секреты,
+парсит ключ и печатает хвост `ssh -v`, поэтому в логе будет причина:
+
+| Что в логе | Причина |
+|---|---|
+| `Permission denied (publickey)` | ключ не в `~/.ssh/authorized_keys` у `deploy`, или пользователя нет |
+| `Connection refused` | sshd не на 22 порту (задай `SSH_PORT`) или firewall |
+| `Host key verification failed` | `SSH_KNOWN_HOSTS` от другого хоста — перегенерируй `ssh-keyscan -H <IP>` |
+| `no such identity` / `Load key: invalid format` | `SSH_KEY` пустой, обрезан или это публичный ключ |
+| таймаут | с раннера GitHub нет маршрута до сервера — нужен self-hosted runner |
+| `detected dubious ownership in repository` | каталог принадлежит не тому пользователю, под которым идёт деплой: `sudo chown -R <SSH_USER>:<SSH_USER> /opt/vps-monitoring` |
+| `docker: unknown command: docker compose` | не установлен compose v2 — см. «Требования на сервере» |
+| `permission denied ... docker.sock` | `sudo usermod -aG docker deploy` и перелогиниться |
+
+Проверить руками то же самое:
+
+```bash
+ssh -v -i ~/.ssh/deploy -p 22 deploy@<IP> 'echo ok'
+```
+
 ### Правило
 
 На сервере ничего не редактируется руками. Любое изменение: PR → CI → merge →
@@ -169,6 +207,7 @@ Deploy. `git reset --hard` в деплое специально затирает
 
 ## Полезное
 
+* Диагностика всей цепочки одной командой: `./scripts/diagnose.sh`
 * Перечитать конфиг Prometheus без рестарта: `curl -X POST http://127.0.0.1:9090/-/reload`
 * Логи: `docker compose logs -f prometheus alertmanager`
 * Остановить: `docker compose down` (данные в volumes сохраняются)

@@ -20,6 +20,11 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
+if ! docker compose version >/dev/null 2>&1; then
+  echo "✗ docker compose v2 не найден (нужен плагин, а не docker-compose v1)" >&2
+  exit 1
+fi
+
 sed -i.bak -E "s/^VPN_IP=.*/VPN_IP=${IP}/" .env
 rm -f .env.bak
 

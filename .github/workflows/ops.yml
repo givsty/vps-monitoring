@@ -30,7 +30,28 @@ jobs:
     timeout-minutes: 15
     environment: production
 
+    env:
+      SSH_TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/vps-monitoring' }}
+
     steps:
+      - name: Проверить секреты
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          missing=0
+          for name in SSH_HOST SSH_USER SSH_KEY SSH_KNOWN_HOSTS; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name не задан (Settings -> Secrets and variables -> Actions)"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
       - name: Настроить SSH
         env:
           SSH_KEY: ${{ secrets.SSH_KEY }}
@@ -44,46 +65,32 @@ jobs:
 
       - name: reload-prometheus
         if: inputs.action == 'reload-prometheus'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
-          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o BatchMode=yes "$SSH_TARGET" \
             "curl -fsS -X POST http://127.0.0.1:9090/-/reload && echo 'prometheus reloaded'"
 
       - name: restart-stack
         if: inputs.action == 'restart-stack'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/vps-monitoring' }}
         run: |
-          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o BatchMode=yes "$SSH_TARGET" \
             "cd '$DEPLOY_PATH' && docker compose restart && ./scripts/healthcheck.sh"
 
       - name: set-vpn-ip
         if: inputs.action == 'set-vpn-ip'
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/vps-monitoring' }}
           NEW_IP: ${{ inputs.vpn_ip }}
         run: |
           if [[ ! "$NEW_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
             echo "::error::vpn_ip не похож на IPv4"
             exit 1
           fi
-          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o BatchMode=yes "$SSH_TARGET" \
             "cd '$DEPLOY_PATH' && ./scripts/set-vpn-ip.sh '$NEW_IP'"
 
       - name: check-block
         if: inputs.action == 'check-block'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/vps-monitoring' }}
         run: |
-          ssh -o BatchMode=yes "$SSH_USER@$SSH_HOST" \
+          ssh -p "$SSH_PORT" -o BatchMode=yes "$SSH_TARGET" \
             "cd '$DEPLOY_PATH' && \
              IP=\$(grep -E '^VPN_IP=' .env | cut -d= -f2-) && \
              python3 scripts/cheburcheck_probe.py --target \"\$IP\" --out /tmp/chebur-check.prom --budget 90 && \
