@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .env не должен быть в git
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env попал в репозиторий — убери его из индекса и добавь в .gitignore"
+            exit 1
+          fi
+          echo "ok: .env не отслеживается"
+
+      - name: Подготовить .env для проверки compose
+        run: |
+          sed -e 's|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=0:ci|' \
+              -e 's|^TELEGRAM_CHAT_ID=.*|TELEGRAM_CHAT_ID=-1|' \
+              -e 's|^VPN_IP=.*|VPN_IP=203.0.113.10|' \
+              .env.example > .env
+          ./scripts/check-env.sh
+
+      - name: docker compose config
+        run: docker compose config -q
+
+      - name: "Prometheus: конфиг, правила, юнит-тесты"
+        run: |
+          IMG=prom/prometheus:v3.11.3
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" check config /p/prometheus.yml
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" check rules /p/rules/alerts.yml
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" test rules /p/tests/alerts_test.yml
+
+      - name: "Alertmanager: шаблон конфига"
+        run: |
+          sed -e 's|__TELEGRAM_BOT_TOKEN__|0:ci|g' \
+              -e 's|__TELEGRAM_CHAT_ID__|-1|g' \
+              alertmanager/alertmanager.yml.tmpl > /tmp/am.yml
+          docker run --rm -v "/tmp/am.yml:/am.yml:ro" \
+            --entrypoint /bin/amtool prom/alertmanager:v0.34.2 check-config /am.yml
+
+      - name: Shellcheck (только ошибки)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=error -x scripts/*.sh prometheus/entrypoint.sh alertmanager/entrypoint.sh
+
+      - name: "Python: синтаксис"
+        run: python3 -m py_compile scripts/cheburcheck_probe.py
+
+      - name: Проверка, что все скрипты исполняемые
+        run: |
+          for f in scripts/*.sh prometheus/entrypoint.sh alertmanager/entrypoint.sh; do
+            [[ -x "$f" ]] || { echo "::error::$f не executable"; exit 1; }
+          done

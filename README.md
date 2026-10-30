@@ -15,6 +15,8 @@
 | `grafana/` | Дашборды (provisioning) |
 | `scripts/cheburcheck_probe.py` | Опрос cheburcheck + динамическое сканирование ТСПУ → метрики |
 | `systemd/` | Таймер для скрипта cheburcheck |
+| `.github/workflows/` | CI, деплой и ручные операции |
+| `docs/PROMQL.md` | Готовые запросы под панели Grafana |
 | `PLAN.md` | Полный план развития (мониторинг, CI/CD, DPI) |
 
 ## Быстрый старт
@@ -120,6 +122,51 @@ cat /var/lib/node_exporter/textfile/chebur.prom
 Когда появится DuckDNS, `file_sd` в `prometheus/prometheus.yml` меняется на `dns_sd`,
 и шаг с IP исчезает совсем.
 
+## CI/CD
+
+| Workflow | Когда | Что делает |
+|---|---|---|
+| `ci.yml` | PR и push в main | проверяет `.env` в git, `docker compose config`, конфиг/правила/юнит-тесты Prometheus, шаблон Alertmanager, shellcheck, синтаксис Python |
+| `deploy.yml` | **только вручную** (`workflow_dispatch`) | заходит по SSH, гоняет `scripts/deploy.sh`: `git reset --hard <sha>` → проверка `.env` → `compose up` → healthcheck → **автооткат** на предыдущий коммит при провале |
+| `ops.yml` | вручную | кнопки: `reload-prometheus`, `restart-stack`, `set-vpn-ip`, `check-block` |
+
+Деплой намеренно не автоматический: продом управляет владелец репозитория.
+Хочешь approval-гейт — Settings → Environments → `production` → Required reviewers.
+
+### Что нужно завести в GitHub
+
+Secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Значение |
+|---|---|
+| `SSH_HOST` | IP сервера мониторинга |
+| `SSH_USER` | `deploy` |
+| `SSH_KEY` | приватный ключ ed25519 деплой-пользователя |
+| `SSH_KNOWN_HOSTS` | `ssh-keyscan -H <IP>` — чтобы не отключать проверку хоста |
+
+Variable (не secret): `DEPLOY_PATH` — путь к репозиторию на сервере, по умолчанию `/opt/vps-monitoring`.
+
+### Подготовка сервера
+
+```bash
+adduser --disabled-password --gecos "" deploy
+usermod -aG docker deploy
+install -d -o deploy -g deploy /opt/vps-monitoring
+sudo -u deploy git clone https://github.com/givsty/vps-monitoring /opt/vps-monitoring
+# публичный ключ из SSH_KEY -> /home/deploy/.ssh/authorized_keys
+```
+
+> `deploy` в группе `docker` — это фактически root. Для соло-сервера приемлемо,
+> но если хочешь строже — деплой через `sudo` с ограниченным набором команд.
+
+> Если SSH с раннеров GitHub до сервера окажется нестабильным (RU-хостинг),
+> поставь self-hosted runner прямо на сервер мониторинга — workflow тот же.
+
+### Правило
+
+На сервере ничего не редактируется руками. Любое изменение: PR → CI → merge →
+Deploy. `git reset --hard` в деплое специально затирает локальные правки.
+
 ## Полезное
 
 * Перечитать конфиг Prometheus без рестарта: `curl -X POST http://127.0.0.1:9090/-/reload`
@@ -128,8 +175,9 @@ cat /var/lib/node_exporter/textfile/chebur.prom
 
 ## Статус
 
-Сделано: P0 (гигиена стека, закрытые порты, volume, healthcheck, правила, алерты)
-и интеграция cheburcheck.
+Сделано: P0 (гигиена стека, закрытые порты, volume, healthcheck, правила, алерты),
+интеграция cheburcheck, CI/CD и деплой с откатом.
 
-Дальше по плану: Tailscale-доступ, DDNS-метрики, дашборды, CI/CD, Ansible-bootstrap.
+Дальше по плану: DDNS-метрики, Tailscale-доступ, Ansible-bootstrap.
+Дашборды — на владельце, запросы лежат в [docs/PROMQL.md](docs/PROMQL.md).
 Подробности — в [PLAN.md](PLAN.md).
