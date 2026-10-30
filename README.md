@@ -1,18 +1,17 @@
 # vps-monitoring
 
-Мониторинг VPN-сервера (AmneziaWG) и алерты в Telegram, включая **детект блокировок DPI/ТСПУ** через [cheburcheck.ru](https://cheburcheck.ru).
+Мониторинг VPN-сервера (AmneziaWG) и алерты на почту и в Telegram, включая **детект блокировок DPI/ТСПУ** через [cheburcheck.ru](https://cheburcheck.ru).
 
-Стек: Prometheus + Alertmanager + Pushgateway + Node Exporter + Grafana.
+Стек: Prometheus + Grafana (алертинг и дашборды) + Pushgateway + Node Exporter.
 
 ## Что внутри
 
 | Компонент | Зачем |
 |---|---|
-| `prometheus/` | Сбор метрик, правила алертов |
-| `alertmanager/` | Отправка в Telegram (токен подставляется из `.env`) |
+| `prometheus/` | Сбор метрик (правила алертов — в Grafana) |
+| `grafana/provisioning/alerting/` | Правила алертов, контакт-поинты (почта + Telegram), маршруты |
 | `pushgateway/` | Heartbeat с VPN-сервера — отличает «заблокировали» от «сервер умер» |
 | `node-exporter` | Метрики самого монитора + textfile-метрики |
-| `grafana/` | Дашборды (provisioning) |
 | `scripts/cheburcheck_probe.py` | Опрос cheburcheck + динамическое сканирование ТСПУ → метрики |
 | `systemd/` | Таймер для скрипта cheburcheck |
 | `.github/workflows/` | CI, деплой и ручные операции |
@@ -23,7 +22,7 @@
 
 ```bash
 cp .env.example .env
-$EDITOR .env                 # VPN_IP, пароль Grafana, токен бота, chat_id
+$EDITOR .env                 # VPN_IP, пароль Grafana, SMTP, токен бота, chat_id
 
 mkdir -p /var/lib/node_exporter/textfile   # сюда пишутся textfile-метрики
 docker compose up -d
@@ -37,10 +36,9 @@ docker compose ps
 Проверка:
 
 * Prometheus — http://127.0.0.1:9090/-/healthy
-* Alertmanager — http://127.0.0.1:9093/-/healthy
 * Grafana — http://127.0.0.1:3000 (логин из `.env`)
 
-Prometheus, Alertmanager и node-exporter всегда слушают только `127.0.0.1`.
+Prometheus и node-exporter всегда слушают только `127.0.0.1`.
 Grafana — `GRAFANA_BIND` (по умолчанию тоже localhost; публичный IP — если нужен
 доступ извне, с сильным паролем). Pushgateway — `PUSHGATEWAY_BIND`, его имеет смысл
 повесить на Tailscale-адрес `100.x.y.z`.
@@ -126,7 +124,7 @@ cat /var/lib/node_exporter/textfile/chebur.prom
 
 | Workflow | Когда | Что делает |
 |---|---|---|
-| `ci.yml` | PR и push в main | проверяет `.env` в git, `docker compose config`, конфиг/правила/юнит-тесты Prometheus, шаблон Alertmanager, shellcheck, синтаксис Python |
+| `ci.yml` | PR и push в main | проверяет `.env` в git, `docker compose config`, конфиг Prometheus, provisioning Grafana (14 правил, контакт-поинты, маршруты), shellcheck, синтаксис Python |
 | `deploy.yml` | **только вручную** (`workflow_dispatch`) | заходит по SSH, гоняет `scripts/deploy.sh`: `git reset --hard <sha>` → проверка `.env` → `compose up` → healthcheck → **автооткат** на предыдущий коммит при провале |
 | `ops.yml` | вручную | кнопки: `reload-prometheus`, `restart-stack`, `set-vpn-ip`, `check-block` |
 
@@ -205,11 +203,71 @@ ssh -v -i ~/.ssh/deploy -p 22 deploy@<IP> 'echo ok'
 На сервере ничего не редактируется руками. Любое изменение: PR → CI → merge →
 Deploy. `git reset --hard` в деплое специально затирает локальные правки.
 
+## Алерты
+
+Алертинг целиком в **Grafana**: правила, состояния, история, silences и контакт-поинты
+видны в UI (Alerting → Alert rules / Active alerts). Prometheus только хранит метрики.
+
+Всё это лежит в git и провижинится при старте:
+
+```
+grafana/provisioning/alerting/
+├── rules.yml            # 14 правил: PromQL + порог
+├── contact-points.yml   # почта + Telegram
+└── policies.yml         # кому и как часто
+```
+
+Правила устроены одинаково: запрос `A` (PromQL, возвращает 1 когда условие выполнено)
+и порог `C` (> 0). Когда условие не выполнено, запрос возвращает пусто — Grafana
+считает это `NoData`, а `noDataState: OK` превращает в «всё нормально». Поэтому
+ложных срабатываний из-за отсутствия данных нет.
+
+### Почта
+
+В `.env`:
+
+```dotenv
+ALERT_EMAIL_TO=golovkovvigg@gmail.com
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=golovkovvigg@gmail.com
+SMTP_PASSWORD=пароль-приложения
+SMTP_FROM=golovkovvigg@gmail.com
+```
+
+`SMTP_PASSWORD` — **пароль приложения**, не пароль от аккаунта (у Gmail создаётся
+при включённой 2FA). Порт **587**: Grafana умеет STARTTLS, а implicit TLS (465)
+не поддерживает — с 465 письма не уйдут.
+
+Затем:
+
+```bash
+docker compose up -d grafana
+docker compose logs -f grafana
+```
+
+Проверить доставку: Alerting → Contact points → `default` → **Test**.
+
+### Telegram
+
+`TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` из `.env` подставляются в тот же
+контакт-поинт — алерты уходят и в Telegram, и на почту.
+
+### Если меняешь правила
+
+Правила правятся в `rules.yml`, деплой — как обычно. Grafana перечитывает
+provisioning на старте контейнера. Проверить локально перед пушем:
+
+```bash
+python3 scripts/validate_provisioning.py
+```
+
 ## Полезное
 
 * Диагностика всей цепочки одной командой: `./scripts/diagnose.sh`
 * Перечитать конфиг Prometheus без рестарта: `curl -X POST http://127.0.0.1:9090/-/reload`
-* Логи: `docker compose logs -f prometheus alertmanager`
+* Логи: `docker compose logs -f prometheus grafana`
 * Остановить: `docker compose down` (данные в volumes сохраняются)
 
 ## Статус

@@ -1,7 +1,15 @@
 apiVersion: 1
 
+# Одноразовая миграция: раньше datasource создавался без uid, а правилам
+# алертинга нужен стабильный uid. Блок удаляет старый и создаёт новый.
+# После первого успешного запуска эти три строки можно убрать.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090

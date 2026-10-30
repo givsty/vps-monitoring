@@ -1,0 +1,682 @@
+apiVersion: 1
+# Правила алертинга Grafana. Каждое правило — PromQL (A) + порог (C):
+# выражение возвращает 1, когда условие выполнено, и пусто, когда нет.
+# Пусто = нет данных = OK (noDataState), поэтому ложных срабатываний нет.
+groups:
+  - orgId: 1
+    name: vpn
+    folder: Monitoring
+    interval: 1m
+    rules:
+      - uid: vpn-unreachable
+        title: VPNUnreachable
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                up{job="node-vpn"} == 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: |-
+            VPN-сервер не отвечает на скрейп
+          description: |-
+            Prometheus не может доскрейпить {{ $labels.instance }} уже 5 минут. Если heartbeat свежий — это блокировка IP, а не падение сервера.
+        labels:
+          severity: critical
+      - uid: vpn-heartbeat-missing
+        title: VPNHeartbeatMissing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                (time() - push_time_seconds{job="vpn-heartbeat"} > 180) or absent(push_time_seconds{job="vpn-heartbeat"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: |-
+            Нет heartbeat с VPN-сервера
+          description: |-
+            VPN-сервер не пушит heartbeat больше 3 минут. Либо сервер мёртв, либо не настроен таймер vpn-heartbeat.
+        labels:
+          severity: critical
+      - uid: vpn-blocked-tspu
+        title: VPNBlockedByTSPU
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                chebur_probe_verdict_count{verdict="tspu_block"} > 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: |-
+            ТСПУ блокирует IP
+          description: |-
+            Cheburcheck: российские сканеры получили вердикт tspu_block. Часть пользователей не может подключиться — пора менять IP.
+        labels:
+          severity: critical
+      - uid: vpn-blocked-sni
+        title: VPNBlockedBySNI
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                chebur_probe_verdict_count{verdict="sni_block"} > 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: |-
+            Похоже на блокировку по SNI/домену
+          description: |-
+            Cheburcheck: сканеры видят sni_block. Для AmneziaWG (UDP без SNI) обычно не критично, но сигнал важный.
+        labels:
+          severity: warning
+      - uid: vpn-rkn
+        title: VPNListedInRKN
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                chebur_listed_in_rkn == 1
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: |-
+            IP/домен найден в списках блокировок
+          description: |-
+            Cheburcheck нашёл адрес в реестре РКН или в подсетях CDN.
+        labels:
+          severity: warning
+      - uid: chebur-stale
+        title: CheburcheckStale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                (time() - chebur_last_success_timestamp > 3600) or absent(chebur_last_success_timestamp)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: |-
+            Cheburcheck давно не опрашивался
+          description: |-
+            Нет свежих метрик от cheburcheck_probe.py. Проверь таймер cheburcheck.timer и доступность cheburcheck.ru.
+        labels:
+          severity: warning
+      - uid: chebur-uncertain
+        title: CheburcheckManyUncertain
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                chebur_probe_verdict_ratio{verdict="uncertain"} > 0.5
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: |-
+            Больше половины сканеров Cheburcheck не дали вердикт
+          description: |-
+            Возможно, сканеры не могут достучаться до цели (сеть/файрвол).
+        labels:
+          severity: info
+      - uid: vpn-ip-changed
+        title: VPNIPChanged
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                vpn_public_ip_age_seconds < 600
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: |-
+            Публичный IP VPN-сервера сменился
+          description: |-
+            Проверь, что DDNS обновился и клиенты переподключились.
+        labels:
+          severity: info
+      - uid: vpn-ddns-mismatch
+        title: VPNDDNSMismatch
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                vpn_ddns_record_matches == 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: |-
+            DDNS-запись не совпадает с реальным IP
+          description: |-
+            Обновитель DDNS не работает или DNS-провайдер отвечает ошибкой.
+        labels:
+          severity: warning
+      - uid: awg-exporter-down
+        title: AmneziawgExporterDown
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                awg_status == 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: |-
+            amneziawg-exporter не может прочитать awg show
+          description: |-
+            Экспортёр не видит интерфейс AmneziaWG — метрики клиентов недостоверны.
+        labels:
+          severity: warning
+      - uid: host-disk-low
+        title: HostDiskLow
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint="/"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs",mountpoint="/"} < 0.15
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: |-
+            Мало места на диске ({{ $labels.instance }})
+          description: |-
+            Свободно меньше 15% корневой ФС.
+        labels:
+          severity: warning
+      - uid: host-memory-high
+        title: HostMemoryHigh
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: |-
+            Мало свободной памяти ({{ $labels.instance }})
+          description: |-
+            Доступно меньше 10% RAM.
+        labels:
+          severity: warning
+      - uid: host-load-high
+        title: HostLoadHigh
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                node_load1 / count by (instance) (node_cpu_seconds_total{mode="idle"}) > 1.5
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: |-
+            Высокая нагрузка ({{ $labels.instance }})
+          description: |-
+            Load average больше 1.5 на ядро.
+        labels:
+          severity: warning
+      - uid: host-udp-errors
+        title: HostUDPBufferErrors
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: |-
+                rate(node_netstat_UdpRcvbufErrors[5m]) > 0
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: |-
+            Ошибки UDP-буфера ({{ $labels.instance }})
+          description: |-
+            Частая причина «VPN тормозит»: ядро не успевает читать UDP.
+        labels:
+          severity: warning

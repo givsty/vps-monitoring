@@ -17,7 +17,8 @@ value_of() {
 }
 
 missing=()
-for key in VPN_IP GRAFANA_ADMIN_PASSWORD TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
+for key in VPN_IP GRAFANA_ADMIN_PASSWORD ALERT_EMAIL_TO SMTP_HOST SMTP_USER SMTP_PASSWORD \
+           TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID; do
   if [[ -z "$(value_of "$key")" ]]; then
     missing+=("$key")
   fi
@@ -38,6 +39,8 @@ if [[ ! "$VPN_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   exit 1
 fi
 
+ALERT_EMAIL_TO="$(value_of ALERT_EMAIL_TO)"
+
 GRAFANA_BIND="$(value_of GRAFANA_BIND)"
 if [[ -z "$GRAFANA_BIND" ]]; then
   echo "⚠ GRAFANA_BIND не задан — Grafana будет только на 127.0.0.1"
@@ -48,3 +51,4 @@ echo "✓ .env в порядке"
 echo "  VPN_IP           = ${VPN_IP}"
 echo "  Grafana          = ${GRAFANA_BIND}:3000"
 echo "  Pushgateway      = $(value_of PUSHGATEWAY_BIND || true)"
+echo "  Почта            = ${ALERT_EMAIL_TO:-выключена (только Telegram)}"

@@ -17,40 +17,15 @@ services:
     volumes:
       - ./prometheus/entrypoint.sh:/prometheus-entrypoint.sh:ro
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/rules:/etc/prometheus/rules:ro
       - prom_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
-    depends_on:
-      alertmanager:
-        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  alertmanager:
-    image: prom/alertmanager:v0.34.2
-    container_name: alertmanager
-    restart: unless-stopped
-    entrypoint: ["/bin/sh", "/entrypoint.sh"]
-    environment:
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?set TELEGRAM_CHAT_ID in .env}
-    volumes:
-      - ./alertmanager/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml.tmpl:ro
-      - ./alertmanager/entrypoint.sh:/entrypoint.sh:ro
-      - alertmanager_data:/alertmanager
-    ports:
-      - "127.0.0.1:9093:9093"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/healthy"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
   pushgateway:
     image: prom/pushgateway:v1.11.2
@@ -83,17 +58,33 @@ services:
     ports:
       - "127.0.0.1:9100:9100"
 
+  # Grafana — единственный движок алертинга: правила, контакт-поинты,
+  # маршруты и история живут в ней (provisioning/alerting).
   grafana:
     image: grafana/grafana:13.3.0
     container_name: grafana
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "/grafana-entrypoint.sh"]
     environment:
+      GF_PATHS_PROVISIONING: /tmp/provisioning
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # SMTP: Grafana использует STARTTLS, поэтому порт 587, а не 465
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: "${SMTP_HOST:?set SMTP_HOST in .env}:${SMTP_PORT:-587}"
+      GF_SMTP_USER: ${SMTP_USER:?set SMTP_USER in .env}
+      GF_SMTP_PASSWORD: ${SMTP_PASSWORD:?set SMTP_PASSWORD in .env}
+      GF_SMTP_FROM_ADDRESS: ${SMTP_FROM:-${SMTP_USER}}
+      GF_SMTP_FROM_NAME: "VPS monitoring"
+      # Подставляются в contact points при старте
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:?set ALERT_EMAIL_TO in .env}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?set TELEGRAM_CHAT_ID in .env}
     volumes:
+      - ./grafana/entrypoint.sh:/grafana-entrypoint.sh:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     ports:
@@ -111,5 +102,4 @@ services:
 volumes:
   prom_data:
   grafana_data:
-  alertmanager_data:
   pushgateway_data:
