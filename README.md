@@ -16,6 +16,7 @@
 | `systemd/` | Таймер для скрипта cheburcheck |
 | `.github/workflows/` | CI, деплой и ручные операции |
 | `docs/PROMQL.md` | Готовые запросы под панели Grafana |
+| `docs/CD.md` | Пошаговая настройка деплоя (секреты, ключи, первый запуск) |
 | `PLAN.md` | Полный план развития (мониторинг, CI/CD, DPI) |
 
 ## Быстрый старт
@@ -130,6 +131,8 @@ cat /var/lib/node_exporter/textfile/chebur.prom
 
 Деплой намеренно не автоматический: продом управляет владелец репозитория.
 Хочешь approval-гейт — Settings → Environments → `production` → Required reviewers.
+
+Подробная пошаговая инструкция со всеми командами — в [docs/CD.md](docs/CD.md).
 
 ### Что нужно завести в GitHub
 

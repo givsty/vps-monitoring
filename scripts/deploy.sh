@@ -64,10 +64,6 @@ fi
 git fetch --prune origin
 
 PREV="$(git rev-parse HEAD)"
-if [[ "$PREV" == "$SHA" || "${PREV:0:${#SHA}}" == "$SHA" ]]; then
-  echo "уже на $SHA, деплой не нужен"
-  exit 0
-fi
 
 rollback() {
   set +e
@@ -78,8 +74,14 @@ rollback() {
   exit 1
 }
 
-echo "==> $PREV -> $SHA"
-git reset --hard "$SHA"
+if [[ "$PREV" == "$SHA" || "${PREV:0:${#SHA}}" == "$SHA" ]]; then
+  # Код уже тот же, но контейнеры могли остаться от старой конфигурации
+  # (например, после ручного git pull). Всё равно применяем конфиг.
+  echo "==> код уже на $SHA, применяю конфигурацию"
+else
+  echo "==> $PREV -> $SHA"
+  git reset --hard "$SHA"
+fi
 
 echo "==> проверка .env"
 ./scripts/check-env.sh || rollback

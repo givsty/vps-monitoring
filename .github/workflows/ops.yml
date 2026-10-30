@@ -46,7 +46,7 @@ jobs:
           missing=0
           for name in SSH_HOST SSH_USER SSH_KEY SSH_KNOWN_HOSTS; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::$name не задан (Settings -> Secrets and variables -> Actions)"
+              echo "::error::$name не задан. Settings -> Secrets and variables -> Actions -> вкладка SECRETS (не Variables), имя ровно $name"
               missing=1
             fi
           done

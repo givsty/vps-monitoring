@@ -39,6 +39,12 @@ if [[ ! "$VPN_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   exit 1
 fi
 
+if [[ "$VPN_IP" == 203.0.113.* ]]; then
+  echo "✗ VPN_IP='${VPN_IP}' — это заглушка из .env.example, а не реальный адрес"
+  echo "  Укажи в .env публичный IP VPN-сервера."
+  exit 1
+fi
+
 ALERT_EMAIL_TO="$(value_of ALERT_EMAIL_TO)"
 
 GRAFANA_BIND="$(value_of GRAFANA_BIND)"
