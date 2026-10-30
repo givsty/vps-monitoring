@@ -146,15 +146,14 @@ State timeline по `chebur_probe_verdict_count{verdict="tspu_block"} > 0`, зн
 
 ## 5. Алерты
 
-| Панель | Тип | Запрос |
-|---|---|---|
-| Горят сейчас | Table | `ALERTS{alertstate="firing"}` |
-| Сколько горит | Stat | `count(ALERTS{alertstate="firing"})` |
-| Ожидают | Table | `ALERTS{alertstate="pending"}` |
+Алертинг теперь в Grafana, а не в Prometheus, поэтому метрики `ALERTS` в Prometheus
+больше нет — правила там не вычисляются.
 
-Для таблицы оставь колонки `alertname`, `severity`, `instance`, `summary`.
+Смотреть состояния: **Alerting → Alert rules** (список правил и их состояние)
+и **Alerting → Active alerts** (что горит прямо сейчас, с историей и silences).
 
----
+Если хочется видеть алерты на дашборде — используй нативную панель **Alert list**
+(тип `alertlist`), она показывает алерты Grafana без всяких запросов. PromQL тут не нужен.
 
 ## 6. Чего пока нет
 

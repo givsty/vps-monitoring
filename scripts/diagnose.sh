@@ -36,7 +36,12 @@ head_ "2. Docker и compose"
 if docker compose version >/dev/null 2>&1; then
   ok "docker compose: $(docker compose version --short 2>/dev/null || echo v2)"
 else
-  bad "docker compose v2 не найден"
+  bad "docker compose v2 не найден ($(docker --version 2>/dev/null || echo 'docker нет'))"
+  for d in /usr/local/lib/docker/cli-plugins /usr/libexec/docker/cli-plugins \
+           /usr/lib/docker/cli-plugins "$HOME/.docker/cli-plugins"; do
+    [[ -d "$d" ]] && note "плагины в $d: $(ls -1 "$d" 2>/dev/null | tr '\n' ' ')"
+  done
+  note "установка: apt install docker-compose-plugin | docker-compose-v2, либо бинарник в cli-plugins"
 fi
 
 running="$(docker compose ps --services --filter status=running 2>/dev/null | tr '\n' ' ')"

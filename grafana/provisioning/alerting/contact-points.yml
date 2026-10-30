@@ -1,0 +1,21 @@
+apiVersion: 1
+
+# __ALERT_EMAIL_TO__ и остальные подставляет grafana/entrypoint.sh при старте.
+# Кавычки обязательны: chat_id выглядит как число, и без них YAML отдаёт его
+# числом, а Grafana ждёт строку (cannot unmarshal number into ... chatid).
+contactPoints:
+  - orgId: 1
+    name: default
+    receivers:
+      - uid: email-main
+        type: email
+        settings:
+          addresses: "__ALERT_EMAIL_TO__"
+          singleEmail: false
+        disableResolveMessage: false
+      - uid: telegram-main
+        type: telegram
+        settings:
+          bottoken: "__TELEGRAM_BOT_TOKEN__"
+          chatid: "__TELEGRAM_CHAT_ID__"
+        disableResolveMessage: false

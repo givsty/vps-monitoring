@@ -30,7 +30,6 @@ wait_for() {
 }
 
 wait_for prometheus http://127.0.0.1:9090/-/healthy || failed=1
-wait_for alertmanager http://127.0.0.1:9093/-/healthy || failed=1
 wait_for grafana "http://${GRAFANA_BIND}:3000/api/health" || failed=1
 
 exit "$failed"

@@ -36,32 +36,29 @@ jobs:
       - name: docker compose config
         run: docker compose config -q
 
-      - name: "Prometheus: конфиг, правила, юнит-тесты"
+      - name: "Prometheus: конфиг"
         run: |
-          IMG=prom/prometheus:v3.11.3
-          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" check config /p/prometheus.yml
-          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" check rules /p/rules/alerts.yml
-          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool "$IMG" test rules /p/tests/alerts_test.yml
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint /bin/promtool \
+            prom/prometheus:v3.11.3 check config /p/prometheus.yml
 
-      - name: "Alertmanager: шаблон конфига"
+      - name: Provisioning Grafana
         run: |
-          sed -e 's|__TELEGRAM_BOT_TOKEN__|0:ci|g' \
-              -e 's|__TELEGRAM_CHAT_ID__|-1|g' \
-              alertmanager/alertmanager.yml.tmpl > /tmp/am.yml
-          docker run --rm -v "/tmp/am.yml:/am.yml:ro" \
-            --entrypoint /bin/amtool prom/alertmanager:v0.34.2 check-config /am.yml
+          python3 -c "import yaml" 2>/dev/null \
+            || python3 -m pip install --quiet --break-system-packages pyyaml
+          python3 scripts/validate_provisioning.py
 
       - name: Shellcheck (только ошибки)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck --severity=error -x scripts/*.sh prometheus/entrypoint.sh alertmanager/entrypoint.sh
+          shellcheck --severity=error -x scripts/*.sh \
+            prometheus/entrypoint.sh grafana/entrypoint.sh
 
       - name: "Python: синтаксис"
-        run: python3 -m py_compile scripts/cheburcheck_probe.py
+        run: python3 -m py_compile scripts/cheburcheck_probe.py scripts/validate_provisioning.py
 
       - name: Проверка, что все скрипты исполняемые
         run: |
-          for f in scripts/*.sh prometheus/entrypoint.sh alertmanager/entrypoint.sh; do
+          for f in scripts/*.sh prometheus/entrypoint.sh grafana/entrypoint.sh; do
             [[ -x "$f" ]] || { echo "::error::$f не executable"; exit 1; }
           done

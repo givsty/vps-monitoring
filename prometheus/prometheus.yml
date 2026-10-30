@@ -1,16 +1,10 @@
+# Алертинг живёт в Grafana (grafana/provisioning/alerting),
+# Prometheus здесь только хранит метрики и выполняет PromQL.
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
   external_labels:
     monitor: vps-monitoring
-
-rule_files:
-  - /etc/prometheus/rules/*.yml
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: prometheus
